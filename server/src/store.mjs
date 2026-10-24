@@ -1,0 +1,21 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+export const defaults={intervalSeconds:3600,categoryIds:[],includeChildren:true,order:'sequence'};
+export const id=()=>crypto.randomUUID();
+export const stamp=()=>new Date().toISOString();
+export class Store {
+ constructor(dir){this.dir=dir;fs.mkdirSync(dir,{recursive:true,mode:0o700});this.file=path.join(dir,'state.json');this.lock=path.join(dir,'server.lock');
+  if(fs.existsSync(this.lock)){const pid=Number(fs.readFileSync(this.lock,'utf8'));let alive=false;try{process.kill(pid,0);alive=true;}catch(e){if(e.code==='EPERM')alive=true;}if(alive)throw new Error('数据目录已被另一服务使用');fs.unlinkSync(this.lock);}
+  fs.writeFileSync(this.lock,String(process.pid),{flag:'wx',mode:0o600});
+  try{if(fs.existsSync(this.file)){this.data=JSON.parse(fs.readFileSync(this.file,'utf8'));if(this.data.schemaVersion!==1||!Array.isArray(this.data.photos)||!Array.isArray(this.data.devices)||!Array.isArray(this.data.categories)||!Array.isArray(this.data.events)||typeof this.data.enrollmentKey!=='string'||!this.data.defaultConfig)throw new Error('数据版本不支持或数据损坏');}
+   else{if(fs.existsSync(this.file+'.previous')||['photos','firmware'].some(name=>fs.existsSync(path.join(dir,name))&&fs.readdirSync(path.join(dir,name)).length))throw new Error('主索引缺失，已有照片或备份已保留；请恢复 state.json 后重启，禁止重新初始化');this.data={schemaVersion:1,admin:null,enrollmentKey:crypto.randomBytes(24).toString('base64url'),defaultConfig:{...defaults},categories:[{id:'art',name:'绘画',parentId:null},{id:'vangogh',name:'梵高',parentId:'art'},{id:'people',name:'人物照片',parentId:null},{id:'landscape',name:'风景',parentId:null}],photos:[],devices:[],events:[],createdAt:stamp()};this.persist(this.data);}
+  }catch(e){fs.unlinkSync(this.lock);throw e;}
+ }
+ persist(next){const tmp=this.file+'.tmp';const fd=fs.openSync(tmp,'w',0o600);try{fs.writeFileSync(fd,JSON.stringify(next));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}if(fs.existsSync(this.file))fs.copyFileSync(this.file,this.file+'.previous');fs.renameSync(tmp,this.file);const dirfd=fs.openSync(this.dir,'r');try{fs.fsyncSync(dirfd);}finally{fs.closeSync(dirfd);}}
+ write(fn){const next=structuredClone(this.data);const result=fn(next);this.persist(next);this.data=next;return result;}
+ event(s,type,message,deviceId=null){s.events.unshift({id:id(),type,message,deviceId,at:stamp()});s.events=s.events.slice(0,200);}
+ close(){if(fs.existsSync(this.lock)&&fs.readFileSync(this.lock,'utf8')===String(process.pid))fs.unlinkSync(this.lock);}
+}
+export function categorySet(s,chosen,children=true){const set=new Set(chosen);if(children){let before;do{before=set.size;for(const c of s.categories)if(set.has(c.parentId))set.add(c.id);}while(before!==set.size);}return set;}
+export function validateConfig(s,v){if(!v||!Number.isInteger(v.intervalSeconds)||v.intervalSeconds<180||v.intervalSeconds>86400)throw new Error('刷新间隔必须在 180～86400 秒之间');if(!Array.isArray(v.categoryIds)||v.categoryIds.length>100||v.categoryIds.some(x=>!s.categories.some(c=>c.id===x)))throw new Error('显示分类无效');if(!['sequence','random'].includes(v.order)||typeof v.includeChildren!=='boolean')throw new Error('播放配置无效');return {intervalSeconds:v.intervalSeconds,categoryIds:[...new Set(v.categoryIds)],includeChildren:v.includeChildren,order:v.order};}

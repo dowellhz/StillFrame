@@ -1,0 +1,35 @@
+.DS_Store
+._*
+__pycache__/
+node_modules/
+
+# Credentials, NAS integration records and local toolchains
+/.private/
+/.tools/
+
+# Build outputs (rebuild with firmware/tools/idf.sh)
+build/
+build-*/
+firmware/sdkconfig.maintenance
+firmware/dist/
+
+# Device dumps, emulator saves and hardware logs
+firmware/backups/
+firmware/test-results/
+firmware/test-assets/*
+!firmware/test-assets/panic.bin
+emulator/bin/
+emulator/runs/
+emulator/fixtures/
+simulator/.data/
+
+# Editor caches and generated bundles
+.cache/
+simulator/Stillframe模拟器.html
+
+# Vendor material and downloaded artwork (not ours to redistribute)
+doc/*.pdf
+doc/*.zip
+/tools/
+/painting/
+/output/

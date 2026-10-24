@@ -1,0 +1,42 @@
+{
+  "esp_idf": {
+    "version": "v5.5.2",
+    "commit": "30aaf64524299d3bde422ca9a2848090d1bc5d0f",
+    "url": "https://github.com/espressif/esp-idf.git"
+  },
+  "platform": "macos-aarch64",
+  "tools": [
+    {
+      "name": "xtensa-esp-elf",
+      "version": "esp-14.2.0_20251107",
+      "sha256": "cffc8213e8e5fea03d12e027868d743ff4d23263e6d45a98b03d18adec6454de",
+      "size": 168886320,
+      "url": "https://github.com/espressif/crosstool-NG/releases/download/esp-14.2.0_20251107/xtensa-esp-elf-14.2.0_20251107-aarch64-apple-darwin.tar.xz"
+    },
+    {
+      "name": "esp32ulp-elf",
+      "version": "2.38_20240113",
+      "sha256": "e3a4dfea043e2bce8cd00b3a0b260a59249fa61ca5931bf02f18a3d43c18deb4",
+      "size": 15843725,
+      "url": "https://github.com/espressif/binutils-gdb/releases/download/esp32ulp-elf-2.38_20240113/esp32ulp-elf-2.38_20240113-macos-arm64.tar.gz"
+    },
+    {
+      "name": "esp-rom-elfs",
+      "version": "20241011",
+      "sha256": "921f000164a421c7628fbfee55b173384aafaa51883adc65cd27bf9b0af9e9a9",
+      "size": 3540038,
+      "url": "https://github.com/espressif/esp-rom-elfs/releases/download/20241011/esp-rom-elfs-20241011.tar.gz"
+    }
+  ],
+  "security_patches": [
+    {
+      "advisory": "GHSA-g764-gwc3-75m5",
+      "upstream_commit": "d51b1076092487e533eadf8b48c9c8579d3a6712",
+      "file": "components/lwip/apps/dhcpserver/dhcpserver.c",
+      "original_sha256": "953f46189bc64680ea5fa761e75511fadb3aebf698a0d9dff251d77166d78b80",
+      "patch": "patches/d51b1076-lwip-dhcp.patch",
+      "patch_sha256": "aece6cf1625a62a65d88ffd39014f6a4a94b84e2fd6b3aac4f1e8cf2f25e293e",
+      "patched_sha256": "bfa96a480272e3cf4faf95b4ac209e1ddce708954ee30dc0062b072cc313cf4c"
+    }
+  ]
+}

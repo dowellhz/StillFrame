@@ -1,0 +1,23 @@
+menu "Stillframe development tests"
+config SF_PANEL_MAINTENANCE
+    bool "Disable all e-paper power and refresh operations"
+    default n
+    help
+        Keeps GPIO45 and panel reset low and skips SPI initialization. Use for
+        provisioning, network and OTA diagnosis with the panel disconnected.
+config SF_OPEN_AP_DIAGNOSTIC
+    bool "Run an open setup AP for authentication diagnosis"
+    default n
+    help
+        Removes WPA authentication from the setup AP. Never enable in a
+        release build; this exists only to isolate client authentication faults.
+config SF_TEST_MODE
+    bool "Run protocol, NVS and OTA tests instead of the photo loop"
+    default n
+config SF_TEST_PANIC
+    bool "Build deliberate startup panic fixture (never install on hardware)"
+    default n
+config SF_RUNTIME_TEST
+    bool "Exercise real driver timeout, HTTP and worker liveness for 90 seconds"
+    default n
+endmenu

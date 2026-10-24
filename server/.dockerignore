@@ -1,0 +1,8 @@
+node_modules
+.synology
+synology
+data
+dist
+test
+scripts
+*.log

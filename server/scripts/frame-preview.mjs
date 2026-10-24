@@ -1,0 +1,14 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {renderImage} from '../src/jobs.mjs';
+const project=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
+const files=(await fs.readdir(path.join(project,'painting/vango'))).filter(n=>n.endsWith('.jpg')).sort();
+const original=await fs.readFile(path.join(project,'painting/vango',files[1]));
+const result=await renderImage(original,{fit:'contain',rotation:0,dither:true});
+const css=await fs.readFile(new URL('../public/style.css',import.meta.url),'utf8');
+const six='data:image/png;base64,'+Buffer.from(result.preview).toString('base64'),raw='data:image/jpeg;base64,'+original.toString('base64');
+const extra='body{padding:36px;max-width:1000px;margin:auto}.preview-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:25px}.preview-header p{font-size:12px;color:var(--muted)}.comparison{display:grid;grid-template-columns:1fr 1fr;gap:28px}.preview-label{text-align:center;font-size:12px;margin-top:16px;letter-spacing:2px}.preview-foot{font-size:12px;color:var(--muted);line-height:2;margin-top:25px}.frame-preview-stage{min-height:570px}.real-frame{max-width:340px}.frame-opening img{position:absolute;left:-.7%;top:-.4477612%;width:101.4%;height:100.8955224%;object-fit:contain;background:white;max-width:none}@media(max-width:650px){body{padding:20px}.comparison{grid-template-columns:1fr}.frame-preview-stage{min-height:480px}}';
+const panels=[[raw,'原图装裱'],[six,'六色装裱']].map(([src,label])=>`<section><div class="frame-preview-stage"><div class="real-frame"><div class="frame-mat"><div class="frame-opening"><img src="${src}" alt="${label}"></div></div></div></div><div class="preview-label">${label}</div></section>`).join('');
+const html=`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Stillframe · 实际尺寸装裱预览</title><style>${css}${extra}</style><div class="preview-header"><div><div class="wordmark">Stillframe</div><p>按今天确定的实体比例预览</p></div><span class="tag">装裱预览</span></div><div class="comparison">${panels}</div><p class="preview-foot">内尺寸 30 × 45 cm · 开窗 20 × 26.8 cm · 原木色框条 1.25 cm<br>白色卡纸左右各 5 cm，上下各 9.1 cm。模拟卡纸遮边：左右各 1.4 mm，上下各 1.2 mm。<br>框条与阴影为视觉近似，六色效果以实际墨水屏为准。</p></html>`;
+await fs.writeFile(path.join(project,'output/stillframe/实体画框预览.html'),html);console.log('实体画框预览已生成');

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Keep persistent state in SYNOPKG_PKGVAR; installation scripts never remove it.
+exit 0

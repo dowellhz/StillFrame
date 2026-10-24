@@ -1,0 +1,46 @@
+#!/bin/sh
+set -eu
+PKG_NAME="${SYNOPKG_PKGNAME:-Stillframe}"
+PKG_DEST="${SYNOPKG_PKGDEST:-/var/packages/Stillframe/target}"
+PKG_VAR="${SYNOPKG_PKGVAR:-/var/packages/Stillframe/var}"
+PID_FILE="${PKG_VAR}/stillframe.pid"
+LOG_FILE="${PKG_VAR}/stillframe.log"
+if [ "$PKG_NAME" != "Stillframe" ]; then echo "套件身份错误" >&2; exit 1; fi
+node_bin() {
+ for candidate in "${STILLFRAME_NODE_BIN:-}" /var/packages/Node.js_v22/target/usr/local/bin/node /var/packages/Node.js_v20/target/usr/local/bin/node /var/packages/Node.js_v18/target/usr/local/bin/node /var/packages/nodejs_v22/target/bin/node /var/packages/nodejs_v20/target/bin/node; do
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then echo "$candidate"; return 0; fi
+ done
+ command -v node 2>/dev/null
+}
+check_node() {
+ NODE="$(node_bin)" || { echo "请先在套件中心安装 Node.js v22 或 v20" >&2; return 1; }
+ "$NODE" -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit(a>18||(a===18&&b>=17)?0:1)' || { echo "需要 Node.js 18.17 或更高版本" >&2; return 1; }
+}
+is_running() { [ -s "$PID_FILE" ] || return 1; pid="$(cat "$PID_FILE")"; case "$pid" in ''|*[!0-9]*) return 1;; esac; kill -0 "$pid" 2>/dev/null; }
+case "${1:-}" in
+ prestart) check_node ;;
+ start)
+  if is_running; then exit 0; fi
+  check_node
+  mkdir -p "$PKG_VAR/data" "$PKG_VAR/tmp"
+  chmod 700 "$PKG_VAR/data" "$PKG_VAR/tmp"
+  umask 077
+  STILLFRAME_DATA_DIR="$PKG_VAR/data" STILLFRAME_HOST=0.0.0.0 STILLFRAME_PORT=8484 TMPDIR="$PKG_VAR/tmp" \
+   "$NODE" "$PKG_DEST/app/src/main.mjs" >>"$LOG_FILE" 2>&1 &
+  echo $! >"$PID_FILE"
+  sleep 1
+  if ! is_running; then rm -f "$PID_FILE"; echo "Stillframe 未启动，请查看 $LOG_FILE" >&2; exit 1; fi
+  ;;
+ prestop) exit 0 ;;
+ stop)
+  if ! is_running; then rm -f "$PID_FILE"; exit 0; fi
+  pid="$(cat "$PID_FILE")"
+  kill "$pid" 2>/dev/null || true
+  attempt=0
+  while kill -0 "$pid" 2>/dev/null && [ "$attempt" -lt 15 ]; do sleep 1; attempt=$((attempt+1)); done
+  if kill -0 "$pid" 2>/dev/null; then echo "服务仍在退出，请查看日志；未强制结束进程" >&2; exit 1; fi
+  rm -f "$PID_FILE"
+  ;;
+ status) if is_running; then exit 0; else exit 3; fi ;;
+ *) exit 1 ;;
+esac

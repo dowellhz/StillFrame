@@ -1,0 +1,2 @@
+import fs from 'node:fs';import {createRequire} from 'node:module';import assert from 'node:assert/strict';import {PNG} from '../../server/node_modules/pngjs/lib/png.js';
+const require=createRequire(import.meta.url),jsQR=require(process.argv[2]||'jsqr');const png=PNG.sync.read(fs.readFileSync(new URL('../assets/setup-preview.png',import.meta.url)));const result=jsQR(new Uint8ClampedArray(png.data),png.width,png.height);assert.equal(result?.data,'http://192.168.4.1/');console.log('PASS: actual six-color setup image QR decodes to '+result.data);
