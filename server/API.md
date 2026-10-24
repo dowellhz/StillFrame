@@ -136,3 +136,7 @@ sync 返回的 `config` 新增 `offlineHotspotSeconds`（60～86400，默认 600
 ## 发送照片到相框
 
 `POST /api/admin/devices/:id/show {photoId}`（管理员）：照片须允许播放（否则 409），设备不可停用（403）。设置插播 `pushPhotoId`，sync 优先下发它，直到设备通过 sync 的 currentPhotoId 或 `/api/v1/device/displayed` 报告已显示。随后服务器向 sync 时记录的设备地址发送 `POST http://<设备>/api/wake`（`Authorization: Bearer <设备连接凭证>`，4 秒超时），响应中的 `woke` 表示相框是否已接受（202）。相框的 wake 只设置“立即同步”，不能修改配置或升级；仍遵守 180 秒刷新保护。
+
+## 作者
+
+照片字段 `author`（字符串或 null，最多 60 字）。`POST /api/admin/photos` 与 `PUT /api/admin/photos/:id` 接受 `author`；空字符串或 null 清除；非字符串返回 400。

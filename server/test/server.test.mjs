@@ -251,3 +251,12 @@ test('sending a photo to a frame overrides the playlist until the frame reports 
  await call(app,'/api/admin/photos/'+first.id,'PUT',{enabled:false},auth);
  assert.equal((await call(app,'/api/admin/devices/push-frame/show','POST',{photoId:first.id},auth)).status,409);
 });
+test('photos carry an optional author that can be set on upload, edited and cleared',async t=>{
+ const {app}=await fixture(t),auth=await initialize(app);
+ let r=await call(app,'/api/admin/photos','POST',{title:'星月夜',author:'  文森特·梵高  ',categoryId:'vangogh',data:pngData(90)},auth);assert.equal(r.status,201);
+ const photo=r.json().photos[0];assert.equal(photo.author,'文森特·梵高');
+ r=await call(app,'/api/admin/photos/'+photo.id,'PUT',{author:'梵高'},auth);assert.equal(r.json().photos[0].author,'梵高');assert.equal(r.json().photos[0].renderVersion,photo.renderVersion,'metadata edits do not re-render');
+ assert.equal((await call(app,'/api/admin/photos/'+photo.id,'PUT',{author:42},auth)).status,400);
+ r=await call(app,'/api/admin/photos/'+photo.id,'PUT',{author:''},auth);assert.equal(r.json().photos[0].author,null);
+ r=await call(app,'/api/admin/photos','POST',{title:'无作者',categoryId:'vangogh',data:pngData(30)},auth);assert.equal(r.json().photos.find(p=>p.title==='无作者').author,null);
+});
