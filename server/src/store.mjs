@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-export const defaults={intervalSeconds:3600,categoryIds:[],includeChildren:true,order:'sequence'};
+export const defaults={intervalSeconds:3600,categoryIds:[],includeChildren:true,order:'sequence',offlineHotspotSeconds:600};
 export const id=()=>crypto.randomUUID();
 export const stamp=()=>new Date().toISOString();
 export class Store {
@@ -18,4 +18,4 @@ export class Store {
  close(){if(fs.existsSync(this.lock)&&fs.readFileSync(this.lock,'utf8')===String(process.pid))fs.unlinkSync(this.lock);}
 }
 export function categorySet(s,chosen,children=true){const set=new Set(chosen);if(children){let before;do{before=set.size;for(const c of s.categories)if(set.has(c.parentId))set.add(c.id);}while(before!==set.size);}return set;}
-export function validateConfig(s,v){if(!v||!Number.isInteger(v.intervalSeconds)||v.intervalSeconds<180||v.intervalSeconds>86400)throw new Error('刷新间隔必须在 180～86400 秒之间');if(!Array.isArray(v.categoryIds)||v.categoryIds.length>100||v.categoryIds.some(x=>!s.categories.some(c=>c.id===x)))throw new Error('显示分类无效');if(!['sequence','random'].includes(v.order)||typeof v.includeChildren!=='boolean')throw new Error('播放配置无效');return {intervalSeconds:v.intervalSeconds,categoryIds:[...new Set(v.categoryIds)],includeChildren:v.includeChildren,order:v.order};}
+export function validateConfig(s,v){if(!v||!Number.isInteger(v.intervalSeconds)||v.intervalSeconds<180||v.intervalSeconds>86400)throw new Error('刷新间隔必须在 180～86400 秒之间');if(!Array.isArray(v.categoryIds)||v.categoryIds.length>100||v.categoryIds.some(x=>!s.categories.some(c=>c.id===x)))throw new Error('显示分类无效');if(!['sequence','random'].includes(v.order)||typeof v.includeChildren!=='boolean')throw new Error('播放配置无效');const offline=v.offlineHotspotSeconds??defaults.offlineHotspotSeconds;if(!Number.isInteger(offline)||offline<60||offline>86400)throw new Error('断网后打开设置热点的时间必须在 1 分钟～24 小时之间');return {intervalSeconds:v.intervalSeconds,categoryIds:[...new Set(v.categoryIds)],includeChildren:v.includeChildren,order:v.order,offlineHotspotSeconds:offline};}

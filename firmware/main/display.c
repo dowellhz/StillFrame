@@ -207,6 +207,11 @@ esp_err_t sf_display_init(void) {
   esp_err_t e = gpio_config(&out);
   if (e)
     return e;
+  // Light sleep isolates GPIOs by default; keep panel power, reset and chip
+  // selects driven so GPIO45 never floats while the chip sleeps.
+  static const gpio_num_t driven[] = {45, 6, 17, 18};
+  for (size_t i = 0; i < sizeof(driven) / sizeof(driven[0]); i++)
+    gpio_sleep_sel_dis(driven[i]);
   gpio_set_level(18, 1);
   gpio_set_level(17, 1);
   sf_display_off();
@@ -246,7 +251,7 @@ esp_err_t sf_display_init(void) {
       return display_finish(err);                                               \
     }                                                                          \
   } while (0)
-esp_err_t sf_display(const uint8_t *pixels) {
+static esp_err_t display_frame(const uint8_t *pixels) {
 #ifdef CONFIG_SF_PANEL_MAINTENANCE
   (void)pixels;
   sf_display_off();
@@ -374,14 +379,21 @@ esp_err_t sf_display(const uint8_t *pixels) {
   gpio_set_level(cs[0], 1);
   gpio_set_level(cs[1], 1);
   TRY(e);
-  // Match the vendor reference during hardware qualification: POF disables
-  // the panel's high-voltage rails, while LOAD_SW keeps logic power present.
-  // Do not immediately pull LOAD_SW and RESET low; that can interrupt the
-  // controller's final settling after BUSY returns high.
-  ESP_LOGI("display", "frame sent; POF complete, panel logic power retained");
+  // POF has disabled the high-voltage rails. Give the controllers a moment to
+  // settle after BUSY returns high, then remove logic power until the next
+  // refresh, as the panel guidelines ask for idle periods.
+  vTaskDelay(pdMS_TO_TICKS(1000));
+  sf_display_off();
+  ESP_LOGI("display", "frame sent; POF complete, panel powered off");
   attempt_failed = false;
   return display_finish(ESP_OK);
 #endif
+}
+esp_err_t sf_display(const uint8_t *pixels) {
+  sf_stay_awake(true);
+  esp_err_t e = display_frame(pixels);
+  sf_stay_awake(false);
+  return e;
 }
 extern const uint8_t setup_start[] asm("_binary_setup_bin_start");
 esp_err_t sf_setup_screen(void) {

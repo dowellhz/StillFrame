@@ -20,3 +20,9 @@ CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 CONFIG_FATFS_LFN_HEAP=y
 
 CONFIG_ESP_HTTP_CLIENT_ENABLE_CUSTOM_TRANSPORT=y
+
+# Automatic light sleep between refreshes (Wi-Fi stays associated)
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+# Keep USB serial logs usable while a computer is attached
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y

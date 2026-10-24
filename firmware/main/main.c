@@ -3,6 +3,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "esp_pm.h"
 #include "esp_task_wdt.h"
 #include "esp_timer.h"
 #include "esp_system.h"
@@ -53,11 +54,11 @@ static RTC_NOINIT_ATTR uint32_t safe_ota_stage;
 static RTC_NOINIT_ATTR uint32_t safe_retry_stage;
 #define SAFE_RETRY_STAGE_MAGIC 0x53465254u
 static void safe_retry_busy_test(void *arg) {
-  if (xSemaphoreTake(sf_operation, pdMS_TO_TICKS(1000)) == pdTRUE) {
+  if (sf_busy_take(pdMS_TO_TICKS(1000)) == pdTRUE) {
     ESP_LOGI("startup-test", "SAFE RETRY WRITE OPERATION HELD");
     vTaskDelay(pdMS_TO_TICKS(2500));
     ESP_LOGI("startup-test", "SAFE RETRY WRITE OPERATION RELEASED");
-    xSemaphoreGive(sf_operation);
+    sf_busy_give();
   }
   vTaskDelete(NULL);
 }
@@ -94,7 +95,7 @@ static void worker(void *arg) {
   ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
   sf_config cfg;
   sf_snapshot(&cfg);
-  while (xSemaphoreTake(sf_operation, pdMS_TO_TICKS(100)) != pdTRUE)
+  while (sf_busy_take(pdMS_TO_TICKS(100)) != pdTRUE)
     esp_task_wdt_reset();
 #ifdef CONFIG_SF_RUNTIME_TEST
   if (!strcmp(cfg.device_id, "sf-boot-stall") && sf_boot_pending()) {
@@ -143,7 +144,7 @@ static void worker(void *arg) {
     worker_cycle_ready = true;
     boot_guard_clear();
   }
-  xSemaphoreGive(sf_operation);
+  sf_busy_give();
   if (boot_safe_mode) {
     sf_enable_ap();
     worker_cycle_ready = true;
@@ -175,7 +176,8 @@ static void worker(void *arg) {
     safe_retry_at = heartbeat + 1000000LL;
 #endif
   bool hide_help = !cfg.configured;
-  bool manual_ap = false;
+  bool manual_ap = false, auto_ap = false;
+  int64_t offline_since = 0;
   bool first_cycle = cfg.configured && !boot_safe_mode;
   bool setup_pending = !cfg.configured && !boot_safe_mode;
   unsigned retry = 30;
@@ -185,7 +187,7 @@ static void worker(void *arg) {
     int64_t now = esp_timer_get_time();
     if (boot_safe_mode && safe_exit_requested) {
       if (!sf_restarting && !sf_config_pending &&
-          xSemaphoreTake(sf_operation, 0) == pdTRUE) {
+          sf_busy_take(0) == pdTRUE) {
         if (!sf_restarting && !sf_config_pending) {
           sf_message("正在退出安全模式并重新启动");
 #ifdef CONFIG_SF_RUNTIME_TEST
@@ -197,7 +199,7 @@ static void worker(void *arg) {
           vTaskDelay(pdMS_TO_TICKS(200));
           esp_restart();
         }
-        xSemaphoreGive(sf_operation);
+        sf_busy_give();
       }
     }
     if (boot_safe_mode && now >= safe_retry_at) {
@@ -205,7 +207,7 @@ static void worker(void *arg) {
       // or MicroSD write. Acquire the same operation mutex as those paths and
       // recheck the restart/configuration flags after taking it.
       if (!sf_restarting && !sf_config_pending &&
-          xSemaphoreTake(sf_operation, 0) == pdTRUE) {
+          sf_busy_take(0) == pdTRUE) {
         if (!sf_restarting && !sf_config_pending) {
           sf_message("安全模式已稳定 30 分钟，准备试运行");
 #ifdef CONFIG_SF_RUNTIME_TEST
@@ -217,7 +219,7 @@ static void worker(void *arg) {
           vTaskDelay(pdMS_TO_TICKS(200));
           esp_restart();
         }
-        xSemaphoreGive(sf_operation);
+        sf_busy_give();
       }
 #ifdef CONFIG_SF_RUNTIME_TEST
       safe_retry_at = safe_retry_test ? now + 500000LL : now + 60000000LL;
@@ -226,7 +228,7 @@ static void worker(void *arg) {
 #endif
     }
     if (sf_display_restart_due() && !manual_ap && !sf_config_pending &&
-        !sf_restarting && xSemaphoreTake(sf_operation, 0) == pdTRUE) {
+        !sf_restarting && sf_busy_take(0) == pdTRUE) {
       // Recheck after acquiring the operation mutex. In particular, a local
       // album upload holds this mutex without setting either state flag.
       if (!manual_ap && !sf_config_pending && !sf_restarting) {
@@ -235,7 +237,7 @@ static void worker(void *arg) {
         vTaskDelay(pdMS_TO_TICKS(200));
         esp_restart();
       }
-      xSemaphoreGive(sf_operation);
+      sf_busy_give();
     }
     if (now - heartbeat >= 300000000) {
       heartbeat = now;
@@ -249,23 +251,23 @@ static void worker(void *arg) {
       continue;
     }
     if (sf_ap_requested &&
-        xSemaphoreTake(sf_operation, pdMS_TO_TICKS(100)) == pdTRUE) {
+        sf_busy_take(pdMS_TO_TICKS(100)) == pdTRUE) {
       sf_ap_requested = false;
       esp_err_t e = sf_enable_ap();
       if (!e)
         manual_ap = true;
       sf_message(e ? "热点暂时无法开启，请稍后重试"
                    : "设置热点已开启：连接 Stillframe，访问 192.168.4.1");
-      xSemaphoreGive(sf_operation);
+      sf_busy_give();
     }
     if (setup_pending && sf_display_available() && !sf_display_wait_us() &&
-        xSemaphoreTake(sf_operation, pdMS_TO_TICKS(100)) == pdTRUE) {
+        sf_busy_take(pdMS_TO_TICKS(100)) == pdTRUE) {
       esp_err_t setup = sf_setup_screen();
       setup_pending = setup != ESP_OK;
-      xSemaphoreGive(sf_operation);
+      sf_busy_give();
     }
     if (xQueueReceive(changes, &candidate, 0) == pdTRUE) {
-      if (xSemaphoreTake(sf_operation, pdMS_TO_TICKS(100)) != pdTRUE) {
+      if (sf_busy_take(pdMS_TO_TICKS(100)) != pdTRUE) {
         xQueueSendToFront(changes, &candidate, 0);
         vTaskDelay(pdMS_TO_TICKS(200));
         continue;
@@ -295,7 +297,8 @@ static void worker(void *arg) {
       if (!e) {
         sf_snapshot(&cfg);
         sf_message("配置已保存，正在读取照片和播放设置");
-        manual_ap = false;
+        manual_ap = auto_ap = false;
+        offline_since = 0;
         if (!cfg.ssid[0])
           esp_wifi_disconnect();
         if (!cfg.local)
@@ -316,7 +319,7 @@ static void worker(void *arg) {
                    "MicroSD 卡");
       }
       sf_config_pending = false;
-      xSemaphoreGive(sf_operation);
+      sf_busy_give();
     }
     sf_snapshot(&cfg);
     if (!boot_safe_mode && !cfg.local && cfg.configured &&
@@ -324,9 +327,43 @@ static void worker(void *arg) {
       next = 0;
       sf_message("Wi-Fi 已断开，正在重新连接");
     }
+    // This board has no SW4 fitted, so the setup hotspot reopens on its own
+    // once the home network has been unreachable for the configured time.
+    if (!boot_safe_mode && !cfg.local && cfg.configured) {
+      if (sf_connected) {
+        offline_since = 0;
+        if (auto_ap && !manual_ap && sf_busy_take(pdMS_TO_TICKS(100)) == pdTRUE) {
+          if (sf_ap && !sf_disable_ap())
+            sf_message("已重新连上家里的 Wi-Fi，设置热点已自动关闭");
+          auto_ap = false;
+          sf_network_power_save(true);
+          sf_busy_give();
+        }
+      } else if (!offline_since) {
+        offline_since = now;
+      } else if (!sf_ap && now - offline_since >=
+                               (int64_t)sf_offline_ap_seconds() * 1000000 &&
+                 sf_busy_take(pdMS_TO_TICKS(100)) == pdTRUE) {
+        if (!sf_enable_ap()) {
+          auto_ap = true;
+          ESP_LOGW("stillframe", "home Wi-Fi unreachable for %lu s; setup hotspot opened",
+                   (unsigned long)sf_offline_ap_seconds());
+          sf_message("家里的 Wi-Fi 长时间连不上，已打开设置热点 Stillframe，可连接后访问 192.168.4.1 修改设置");
+        }
+        sf_network_power_save(true);
+        sf_busy_give();
+      }
+      // Scanning for the home network moves the hotspot's channel and drops a
+      // phone that is reconfiguring the frame, so wait while one is connected.
+      if (!sf_connected && !first_cycle && !sf_refresh_requested &&
+          now >= next && sf_ap_in_use()) {
+        next = now + 60000000LL;
+        sf_message("有设备连接着设置热点，暂停重连家里的 Wi-Fi");
+      }
+    }
     if (!boot_safe_mode && cfg.configured &&
         (sf_refresh_requested || esp_timer_get_time() >= next)) {
-      if (xSemaphoreTake(sf_operation, pdMS_TO_TICKS(100)) == pdTRUE) {
+      if (sf_busy_take(pdMS_TO_TICKS(100)) == pdTRUE) {
         sf_network_power_save(false);
         sf_refresh_requested = false;
         esp_err_t e = ESP_OK;
@@ -376,8 +413,10 @@ static void worker(void *arg) {
           retry = retry < 150 ? retry * 2 : 300;
           next = esp_timer_get_time() + (int64_t)retry * 1000000;
         } else {
-          if (!cfg.local && sf_connected && !manual_ap)
+          if (!cfg.local && sf_connected && !manual_ap) {
             sf_disable_ap();
+            auto_ap = false;
+          }
           retry = 30;
           int64_t delay = (int64_t)cfg.interval * 1000000;
           if (waiting) {
@@ -388,7 +427,7 @@ static void worker(void *arg) {
           next = esp_timer_get_time() + delay;
         }
         sf_network_power_save(true);
-        xSemaphoreGive(sf_operation);
+        sf_busy_give();
         if (first_cycle) {
           first_cycle = false;
           worker_cycle_ready = true;
@@ -439,6 +478,19 @@ void app_main(void) {
 #endif
   ESP_LOGI("stillframe", "Stillframe " SF_VERSION " starting");
   esp_err_t storage = sf_state_init();
+  // Stay awake through startup. The USB Serial/JTAG monitor treats a single
+  // 10 ms tick without SOF as a disconnect, so sleeping before the host has
+  // re-enumerated would power down USB and the port would never reappear.
+  sf_stay_awake(true);
+#ifdef CONFIG_PM_ENABLE
+  // Idle between refreshes in automatic light sleep; Wi-Fi stays associated
+  // and wakes on DTIM, so the web page and OTA remain reachable.
+  esp_pm_config_t pm = {
+      .max_freq_mhz = 160, .min_freq_mhz = 40, .light_sleep_enable = true};
+  esp_err_t pm_error = esp_pm_configure(&pm);
+  ESP_LOGI("stillframe", "power management: %s",
+           pm_error ? esp_err_to_name(pm_error) : "auto light sleep enabled");
+#endif
   if (storage) {
     if (!sf_lock || !sf_operation)
       abort();
@@ -537,6 +589,7 @@ void app_main(void) {
       "startup services ready; storage=%s panel=%s; AP Stillframe 192.168.4.1",
       sf_storage_fault ? "recovery" : "ready",
       esp_err_to_name(sf_display_error()));
+  sf_stay_awake(false);
 #ifdef CONFIG_SF_RUNTIME_TEST
   extern void sf_run_runtime_tests(void);
   sf_run_runtime_tests();

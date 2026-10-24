@@ -109,6 +109,7 @@ static esp_err_t status(httpd_req_t *r) {
   cJSON_AddBoolToObject(j, "hasToken", c.token[0] != 0);
   cJSON_AddBoolToObject(j, "local", c.local);
   cJSON_AddNumberToObject(j, "intervalSeconds", c.interval);
+  cJSON_AddNumberToObject(j, "offlineHotspotSeconds", sf_offline_ap_seconds());
   cJSON_AddBoolToObject(j, "random", c.random);
   cJSON_AddStringToObject(j, "category", c.category);
   xSemaphoreTake(sf_lock, portMAX_DELAY);
@@ -260,10 +261,10 @@ static esp_err_t update(httpd_req_t *r) {
   if (sf_restarting || sf_config_pending || sf_boot_pending())
     return error(r, "409 Conflict", "设备正在保存配置或准备重启，请稍后重试");
 
-  if (xSemaphoreTake(sf_operation, 0) != pdTRUE)
+  if (sf_busy_take(0) != pdTRUE)
     return error(r, "409 Conflict", "设备正在工作，请稍后升级");
   if (!sf_begin_update()) {
-    xSemaphoreGive(sf_operation);
+    sf_busy_give();
     return error(r, "409 Conflict", "设备正在保存配置或升级，请稍候");
   }
   const esp_partition_t *part = esp_ota_get_next_update_partition(NULL);
@@ -341,7 +342,7 @@ done:
   free(buf);
   mbedtls_sha256_free(&hash);
   sf_restarting = success;
-  xSemaphoreGive(sf_operation);
+  sf_busy_give();
   if (e)
     return error(
         r, "400 Bad Request",
@@ -360,12 +361,12 @@ static esp_err_t local_api(httpd_req_t *r) {
   if (sf_storage_fault)
     return error(r, "503 Service Unavailable",
                  "恢复模式下暂停本地相册访问，原文件未修改");
-  if (xSemaphoreTake(sf_operation, pdMS_TO_TICKS(100)) != pdTRUE)
+  if (sf_busy_take(pdMS_TO_TICKS(100)) != pdTRUE)
     return error(r, "409 Conflict", "设备正忙");
   esp_err_t e = sf_local_api(r);
   if (e == ESP_FAIL || e == ESP_ERR_NOT_FOUND)
     sf_local_unmount();
-  xSemaphoreGive(sf_operation);
+  sf_busy_give();
   return e;
 }
 esp_err_t sf_web_start(void) {

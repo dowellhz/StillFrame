@@ -35,6 +35,12 @@ esp_err_t sf_parse_sync(const char *body, size_t len, sf_sync *out) {
       interval->valuedouble != interval->valueint)
     goto done;
   out->interval = interval->valueint;
+  // Optional; older servers omit it and the frame keeps its saved value.
+  cJSON *offline = cJSON_GetObjectItemCaseSensitive(config, "offlineHotspotSeconds");
+  if (cJSON_IsNumber(offline) && offline->valuedouble >= 60 &&
+      offline->valuedouble <= 86400 &&
+      offline->valuedouble == offline->valueint)
+    out->offline_ap = offline->valueint;
   if (cJSON_IsNull(p)) {
     e = ESP_OK;
     goto done;
@@ -248,6 +254,11 @@ esp_err_t sf_server_cycle_due(bool allow_display, bool *waiting) {
   e = sf_save(&cfg);
   if (e)
     return e;
+  if (result.offline_ap && result.offline_ap != sf_offline_ap_seconds()) {
+    esp_err_t saved = sf_save_offline_ap(result.offline_ap);
+    ESP_LOGI("sync", "offline hotspot delay %u s%s", result.offline_ap,
+             saved ? " (not saved)" : "");
+  }
   if (!result.has_photo) {
     request[0] = 0;
     sf_message("服务器暂无照片，保留当前画面");

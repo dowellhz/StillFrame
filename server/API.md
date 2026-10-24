@@ -124,3 +124,11 @@ photo 没有候选照片时为 null。此时保留原画面，仍保存新配置
 ## 显示确认
 
 `POST /api/v1/device/displayed`，设备凭证同 sync：`{deviceId, photoId, photoVersion?}`。设备完成下载、校验并刷新屏幕后立即调用，只更新“设备报告显示”（`currentPhotoId`、`currentPhotoVersion`、报告时间），不选择下一张照片，也不影响待显示照片的重发逻辑；下一次 sync 仍照常携带 `currentPhotoId`。photoVersion 取自下载地址中的 `v`。未知设备 404，停用设备 403。固件 0.1.1-rc12 起使用；旧服务器返回 404 时固件只记录警告。
+
+## 断网自动开热点
+
+sync 返回的 `config` 新增 `offlineHotspotSeconds`（60～86400，默认 600）。默认配置和设备专属配置都可设置；此前保存、没有该字段的配置按 600 下发。固件 0.1.1-rc16 起在联网时接收并写入相框 NVS（键 `offline_ap`），断网后按最后一次收到的值执行：连续连不上家里 Wi-Fi 超过该时间即打开 Stillframe 设置热点，恢复连接后自动关闭。旧固件忽略该字段。
+
+## 照片色彩
+
+照片字段：`color`（natural/standard/vivid）、`chroma`（0.6～1.8）、`brightness`（−20～20）、`contrast`（0.7～1.5）、`renderer`（当前 `lab-1`）。更换 `color` 而未同时给出微调值时套用该预设的值。`POST /api/admin/photos/:id/simulate` 以请求体覆盖照片设置，返回 600×800 模拟 PNG，不保存。`PUT /api/admin/photo-defaults {color}` 设置新上传默认色彩；`POST /api/admin/photos/rerender` 按默认色彩后台重新生成全部照片（202，进行中再次请求 409），进度见 state 的 `rerender`。

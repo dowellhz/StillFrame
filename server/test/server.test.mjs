@@ -176,19 +176,19 @@ test('deleting a frame removes it from the list; an active frame re-registers on
  assert.deepEqual(r.json().devices.map(d=>d.id),['live-frame']);assert.equal(r.json().statistics.devices,1);
  assert.equal((await sync('old-frame')).json().registered,true,'a deleted frame that is still in use reappears as new');
 });
-test('color enhancement defaults to vivid, re-renders on change, rejects unknown levels and migrates old photos once',async t=>{
+test('calibrated renderer defaults to natural, re-renders on colour change and migrates earlier renders once',async t=>{
  const {app,dir}=await fixture(t),auth=await initialize(app);
  const colorful=()=>{const data=Buffer.alloc(16*16*4,255);for(let i=0;i<data.length;i+=4){data[i]=180;data[i+1]=120;data[i+2]=90;}return 'data:image/png;base64,'+PNG.sync.write({width:16,height:16,data}).toString('base64');};
  assert.equal((await call(app,'/api/admin/photos','POST',{title:'坏色彩',categoryId:'vangogh',data:pngData(),color:'neon'},auth)).status,400);
  let r=await call(app,'/api/admin/photos','POST',{title:'暖色',categoryId:'vangogh',data:colorful()},auth);assert.equal(r.status,201,r.bytes.toString());
- const photo=r.json().photos[0];assert.equal(photo.color,'vivid');
- r=await call(app,'/api/admin/photos/'+photo.id,'PUT',{color:'natural'},auth);assert.equal(r.status,200,r.bytes.toString());
- const natural=r.json().photos[0];assert.equal(natural.color,'natural');assert.notEqual(natural.renderVersion,photo.renderVersion);assert.notEqual(natural.displaySha256,photo.displaySha256,'enhancement must change the panel data');
- app.store.write(s=>{delete s.photos[0].color;});app.close();
+ const photo=r.json().photos[0];assert.equal(photo.color,'natural');assert.equal(photo.renderer,'lab-1');
+ r=await call(app,'/api/admin/photos/'+photo.id,'PUT',{color:'vivid'},auth);assert.equal(r.status,200,r.bytes.toString());
+ const vivid=r.json().photos[0];assert.notEqual(vivid.renderVersion,photo.renderVersion);assert.notEqual(vivid.displaySha256,photo.displaySha256,'chroma must change the panel data');
+ app.store.write(s=>{delete s.photos[0].renderer;});app.close();
  const again=await createApp({dataDir:dir});t.after(()=>again.close());assert.equal(await again.colorMigration,1);
- const migrated=again.store.data.photos[0];assert.equal(migrated.color,'vivid');assert.notEqual(migrated.renderVersion,natural.renderVersion);assert.equal(migrated.displaySha256,photo.displaySha256,'migration renders exactly like a fresh vivid upload');
- assert.ok(again.store.data.events.some(e=>/重新生成 1 张/.test(e.message)));
- const third=await (async()=>{again.close();const a=await createApp({dataDir:dir});t.after(()=>a.close());return a;})();assert.equal(await third.colorMigration,0,'migration runs only once');
+ const migrated=again.store.data.photos[0];assert.equal(migrated.color,'natural','old vivid default maps to natural');assert.equal(migrated.renderer,'lab-1');assert.equal(migrated.displaySha256,photo.displaySha256,'migration renders exactly like a fresh natural upload');
+ assert.ok(again.store.data.events.some(e=>/墨水校准算法重新生成 1 张/.test(e.message)));
+ again.close();const third=await createApp({dataDir:dir});t.after(()=>third.close());assert.equal(await third.colorMigration,0,'migration runs only once');
 });
 test('display confirmation updates the reported photo immediately without advancing the playlist',async t=>{
  const {app}=await fixture(t),auth=await initialize(app);const key=(await call(app,'/api/admin/enrollment-key','GET',undefined,auth)).json().key,deviceAuth={authorization:'Bearer '+key};
@@ -203,4 +203,33 @@ test('display confirmation updates the reported photo immediately without advanc
  const device=()=>app.store.data.devices.find(d=>d.id==='ack-frame');assert.equal(device().currentPhotoId,first.id);assert.equal(device().currentPhotoVersion,version);assert.equal(device().lastDeliveredId,first.id,'confirmation must not select another photo');
  assert.notEqual((await sync({requestId:'b',currentPhotoId:first.id})).json().photo.id,first.id,'the next scheduled sync still advances');
  await call(app,'/api/admin/devices/ack-frame','PUT',{disabled:true},auth);assert.equal((await displayed({photoId:first.id})).status,403);
+});
+test('offline hotspot delay is configurable, validated, and defaults for configs saved before it existed',async t=>{
+ const {app}=await fixture(t),auth=await initialize(app);const key=(await call(app,'/api/admin/enrollment-key','GET',undefined,auth)).json().key,deviceAuth={authorization:'Bearer '+key};
+ const sync=r=>call(app,'/api/v1/device/sync','POST',{deviceId:'hotspot-frame',requestId:r},deviceAuth);
+ assert.equal((await sync('a')).json().config.offlineHotspotSeconds,600);
+ app.store.write(s=>{delete s.defaultConfig.offlineHotspotSeconds;});assert.equal((await sync('b')).json().config.offlineHotspotSeconds,600,'legacy default config');
+ assert.equal((await call(app,'/api/admin/default-config','PUT',{...cfg,offlineHotspotSeconds:30},auth)).status,400);
+ assert.equal((await call(app,'/api/admin/devices/hotspot-frame','PUT',{config:{...cfg,offlineHotspotSeconds:1800}},auth)).status,200);
+ assert.equal((await sync('c')).json().config.offlineHotspotSeconds,1800);
+ app.store.write(s=>{delete s.devices[0].config.offlineHotspotSeconds;});assert.equal((await sync('d')).json().config.offlineHotspotSeconds,600,'legacy device config');
+});
+test('tone overrides, live simulation, default colour and bulk re-render',async t=>{
+ const {app}=await fixture(t),auth=await initialize(app);
+ let r=await call(app,'/api/admin/photos','POST',{title:'调色',categoryId:'vangogh',data:pngData(120)},auth);assert.equal(r.status,201,r.bytes.toString());
+ const photo=r.json().photos[0];assert.deepEqual([photo.chroma,photo.brightness,photo.contrast],[1,0,1]);
+ const sim=await call(app,`/api/admin/photos/${photo.id}/simulate`,'POST',{chroma:1.4,brightness:10,contrast:1.2},auth);assert.equal(sim.status,200);assert.equal(sim.headers['Content-Type'],'image/png');
+ const png=PNG.sync.read(sim.bytes);assert.deepEqual([png.width,png.height],[600,800]);
+ assert.equal((await call(app,`/api/admin/photos/${photo.id}/simulate`,'POST',{chroma:3})).status,401);
+ assert.equal((await call(app,`/api/admin/photos/${photo.id}/simulate`,'POST',{chroma:3},auth)).status,400);
+ assert.equal(app.store.data.photos[0].renderVersion,photo.renderVersion,'simulation never stores a render');
+ r=await call(app,'/api/admin/photos/'+photo.id,'PUT',{brightness:12,contrast:1.2},auth);const tuned=r.json().photos[0];assert.equal(tuned.brightness,12);assert.notEqual(tuned.displaySha256,photo.displaySha256);
+ assert.equal((await call(app,'/api/admin/photo-defaults','PUT',{color:'neon'},auth)).status,400);
+ r=await call(app,'/api/admin/photo-defaults','PUT',{color:'standard'},auth);assert.equal(r.json().defaultColor,'standard');
+ r=await call(app,'/api/admin/photos','POST',{title:'默认',categoryId:'vangogh',data:pngData(60)},auth);assert.equal(r.json().photos.find(p=>p.title==='默认').chroma,1.15);
+ r=await call(app,'/api/admin/photos/rerender','POST',{},auth);assert.equal(r.status,202);assert.ok(r.json().rerender);
+ assert.equal((await call(app,'/api/admin/photos/rerender','POST',{},auth)).status,409);
+ for(let i=0;i<200&&(await call(app,'/api/admin/state','GET',undefined,auth)).json().rerender;i++)await new Promise(res=>setTimeout(res,50));
+ const after=app.store.data.photos.find(p=>p.id===photo.id);assert.equal(after.color,'standard');assert.equal(after.brightness,0,'bulk re-render resets per-photo tweaks');
+ assert.ok(app.store.data.events.some(e=>/按默认色彩重新生成 2 张/.test(e.message)));
 });

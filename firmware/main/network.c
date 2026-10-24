@@ -42,6 +42,11 @@ bool sf_network_take_reconnect(void) {
   taskEXIT_CRITICAL(&reconnect_gate);
   return requested;
 }
+// True while a phone or computer is associated with the setup hotspot.
+bool sf_ap_in_use(void) {
+  wifi_sta_list_t list;
+  return sf_ap && esp_wifi_ap_get_sta_list(&list) == ESP_OK && list.num > 0;
+}
 void sf_network_power_save(bool idle) {
   static int previous = -1;
   // Provisioning must favor a stable AP.  Modem sleep while APSTA is serving

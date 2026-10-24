@@ -1,4 +1,5 @@
 #include "esp_mac.h"
+#include "esp_pm.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "stillframe.h"
@@ -12,6 +13,7 @@ volatile bool sf_connected, sf_ap, sf_sd, sf_refresh_requested, sf_restarting,
 volatile bool sf_memory_fault;
 static bool persisted;
 static char displayed_sha[65];
+static uint32_t offline_ap = 600;
 char sf_status[160] = "正在启动";
 void sf_snapshot(sf_config *cfg) {
   xSemaphoreTake(sf_lock, portMAX_DELAY);
@@ -49,6 +51,22 @@ esp_err_t sf_save_photo_sha(const char *sha) {
   }
   return e;
 }
+uint32_t sf_offline_ap_seconds(void) { return offline_ap; }
+esp_err_t sf_save_offline_ap(uint32_t seconds) {
+  if (seconds < 60 || seconds > 86400 || sf_storage_fault)
+    return ESP_ERR_INVALID_ARG;
+  nvs_handle_t n;
+  esp_err_t e = nvs_open("stillframe", NVS_READWRITE, &n);
+  if (e)
+    return e;
+  e = nvs_set_u32(n, "offline_ap", seconds);
+  if (!e)
+    e = nvs_commit(n);
+  nvs_close(n);
+  if (!e)
+    offline_ap = seconds;
+  return e;
+}
 esp_err_t sf_save(const sf_config *cfg) {
   if (sf_storage_fault)
     return ESP_ERR_INVALID_STATE;
@@ -73,11 +91,40 @@ esp_err_t sf_save(const sf_config *cfg) {
   }
   return e;
 }
+#ifdef CONFIG_PM_ENABLE
+static esp_pm_lock_handle_t awake_lock;
+#endif
+// Counting lock that keeps the chip out of automatic light sleep. GPIOs are
+// isolated in light sleep, so any refresh, transfer or storage write holds it.
+void sf_stay_awake(bool awake) {
+#ifdef CONFIG_PM_ENABLE
+  if (!awake_lock)
+    return;
+  if (awake)
+    esp_pm_lock_acquire(awake_lock);
+  else
+    esp_pm_lock_release(awake_lock);
+#endif
+}
+BaseType_t sf_busy_take(TickType_t wait) {
+  if (xSemaphoreTake(sf_operation, wait) != pdTRUE)
+    return pdFALSE;
+  sf_stay_awake(true);
+  return pdTRUE;
+}
+void sf_busy_give(void) {
+  sf_stay_awake(false);
+  xSemaphoreGive(sf_operation);
+}
 esp_err_t sf_state_init(void) {
   sf_lock = xSemaphoreCreateMutex();
   sf_operation = xSemaphoreCreateMutex();
   if (!sf_lock || !sf_operation)
     return ESP_ERR_NO_MEM;
+#ifdef CONFIG_PM_ENABLE
+  if (esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "sf_busy", &awake_lock))
+    return ESP_ERR_NO_MEM;
+#endif
   // Never erase NVS on error: WiFi credentials and device identity must survive
   // upgrades.
   memset(&sf_cfg, 0, sizeof(sf_cfg));
@@ -108,6 +155,10 @@ esp_err_t sf_state_init(void) {
   char saved_sha[65] = {0};
   size_t sha_size = sizeof(saved_sha);
   esp_err_t sha_error = nvs_get_str(n, "photo_sha", saved_sha, &sha_size);
+  uint32_t saved_offline = 0;
+  if (nvs_get_u32(n, "offline_ap", &saved_offline) == ESP_OK &&
+      saved_offline >= 60 && saved_offline <= 86400)
+    offline_ap = saved_offline;
   nvs_close(n);
   if (e == ESP_ERR_NVS_NOT_FOUND)
     return sf_save(&sf_cfg);

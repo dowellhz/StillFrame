@@ -1,5 +1,5 @@
 idf_component_register(SRCS "main.c" "state.c" "display.c" "protocol.c" "network.c" "web.c" "local.c" "rom.c" "http_guard.c"
- INCLUDE_DIRS "." REQUIRES tcp_transport esp_wifi esp_event esp_netif nvs_flash esp_http_server esp_http_client app_update spi_flash esp_driver_spi esp_driver_gpio fatfs sdmmc json lwip mbedtls esp_timer esp_system
+ INCLUDE_DIRS "." REQUIRES tcp_transport esp_wifi esp_event esp_netif nvs_flash esp_http_server esp_http_client app_update spi_flash esp_driver_spi esp_driver_gpio fatfs sdmmc json lwip mbedtls esp_timer esp_system esp_pm
  EMBED_FILES "../assets/index.html" "../assets/setup.bin" "../assets/welcome.bin")
 if(CONFIG_SF_TEST_MODE)
  target_sources(${COMPONENT_LIB} PRIVATE "selftest.c" "network_fault_test.c")

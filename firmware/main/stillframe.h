@@ -16,7 +16,7 @@
 #define SF_VERSION "0.1.1-rc10-maintenance"
 #endif
 #else
-#define SF_VERSION "0.1.1-rc12"
+#define SF_VERSION "0.1.1-rc16"
 #endif
 typedef struct {
   uint32_t version;
@@ -28,7 +28,7 @@ typedef struct {
   bool random;
 } sf_config;
 typedef struct {
-  unsigned interval;
+  unsigned interval, offline_ap;
   bool has_photo;
   char id[80], url[512], sha256[65];
 } sf_sync;
@@ -42,6 +42,9 @@ esp_err_t sf_state_init(void);
 esp_err_t sf_save(const sf_config *cfg);
 void sf_photo_sha(char out[65]);
 esp_err_t sf_save_photo_sha(const char *sha);
+// Seconds offline before the setup hotspot reopens; delivered by the server.
+uint32_t sf_offline_ap_seconds(void);
+esp_err_t sf_save_offline_ap(uint32_t seconds);
 void sf_snapshot(sf_config *cfg);
 void sf_message(const char *text);
 esp_err_t sf_display_init(void);
@@ -80,9 +83,15 @@ esp_err_t sf_server_cycle_due(bool allow_display, bool *waiting);
 
 void sf_network_power_save(bool idle);
 bool sf_network_take_reconnect(void);
+bool sf_ap_in_use(void);
 
 esp_err_t sf_station_configure(const sf_config *cfg);
 
 bool sf_begin_update(void);
 void sf_prepare_ota_reboot(void);
 bool sf_safe_mode_active(void);
+
+// Take/give sf_operation while also blocking automatic light sleep.
+BaseType_t sf_busy_take(TickType_t wait);
+void sf_busy_give(void);
+void sf_stay_awake(bool awake);
