@@ -132,3 +132,7 @@ sync 返回的 `config` 新增 `offlineHotspotSeconds`（60～86400，默认 600
 ## 照片色彩
 
 照片字段：`color`（natural/standard/vivid）、`chroma`（0.6～1.8）、`brightness`（−20～20）、`contrast`（0.7～1.5）、`renderer`（当前 `lab-1`）。更换 `color` 而未同时给出微调值时套用该预设的值。`POST /api/admin/photos/:id/simulate` 以请求体覆盖照片设置，返回 600×800 模拟 PNG，不保存。`PUT /api/admin/photo-defaults {color}` 设置新上传默认色彩；`POST /api/admin/photos/rerender` 按默认色彩后台重新生成全部照片（202，进行中再次请求 409），进度见 state 的 `rerender`。
+
+## 发送照片到相框
+
+`POST /api/admin/devices/:id/show {photoId}`（管理员）：照片须允许播放（否则 409），设备不可停用（403）。设置插播 `pushPhotoId`，sync 优先下发它，直到设备通过 sync 的 currentPhotoId 或 `/api/v1/device/displayed` 报告已显示。随后服务器向 sync 时记录的设备地址发送 `POST http://<设备>/api/wake`（`Authorization: Bearer <设备连接凭证>`，4 秒超时），响应中的 `woke` 表示相框是否已接受（202）。相框的 wake 只设置“立即同步”，不能修改配置或升级；仍遵守 180 秒刷新保护。

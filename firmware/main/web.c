@@ -18,6 +18,17 @@ static esp_err_t error(httpd_req_t *r, const char *status, const char *msg) {
   httpd_resp_set_status(r, status);
   return httpd_resp_sendstr(r, msg);
 }
+// Constant-time comparison of a request header against the expected value.
+static bool header_matches(httpd_req_t *r, const char *name, const char *want) {
+  char got[208];
+  if (httpd_req_get_hdr_value_str(r, name, got, sizeof(got)) != ESP_OK)
+    return false;
+  size_t a = strlen(got), b = strlen(want);
+  unsigned diff = a != b;
+  for (size_t i = 0; i < a && i < b; i++)
+    diff |= got[i] ^ want[i];
+  return !diff;
+}
 static bool authorize(httpd_req_t *r) {
   if (r->method != HTTP_GET && httpd_req_get_hdr_value_len(r, "Origin")) {
     char origin[300], host[260], expected[300];
@@ -34,23 +45,14 @@ static bool authorize(httpd_req_t *r) {
   }
   sf_config c;
   sf_snapshot(&c);
-  char got[160], plain[80], want[160] = "Basic ";
+  char plain[80], want[160] = "Basic ";
   size_t len;
   snprintf(plain, sizeof(plain), "admin:%s", c.ap_password);
   mbedtls_base64_encode((uint8_t *)want + 6, sizeof(want) - 6, &len,
                         (uint8_t *)plain, strlen(plain));
   want[6 + len] = 0;
-  if (httpd_req_get_hdr_value_str(r, "Authorization", got, sizeof(got)) ==
-      ESP_OK) {
-    unsigned diff = 0;
-    size_t a = strlen(got), b = strlen(want);
-    if (a == b) {
-      for (size_t i = 0; i < a; i++)
-        diff |= got[i] ^ want[i];
-      if (!diff)
-        return true;
-    }
-  }
+  if (header_matches(r, "Authorization", want))
+    return true;
   httpd_resp_set_hdr(r, "WWW-Authenticate", "Basic realm=\"Stillframe\"");
   error(r, "401 Unauthorized", "请使用 admin 和设置热点密码登录");
   return false;
@@ -247,6 +249,19 @@ static esp_err_t refresh(httpd_req_t *r) {
   sf_refresh_requested = true;
   return httpd_resp_sendstr(r, "已请求刷新");
 }
+// The album server calls this after a photo is sent to the frame. It uses the
+// device credential and can only request an immediate sync.
+static esp_err_t wake(httpd_req_t *r) {
+  sf_config c;
+  sf_snapshot(&c);
+  char want[208];
+  snprintf(want, sizeof(want), "Bearer %s", c.token);
+  if (!c.configured || c.local || !c.token[0] ||
+      !header_matches(r, "Authorization", want))
+    return error(r, "401 Unauthorized", "设备凭证无效");
+  sf_refresh_requested = true;
+  return error(r, "202 Accepted", "将立即同步");
+}
 static void reboot(void *arg) {
   vTaskDelay(pdMS_TO_TICKS(1000));
   sf_display_off();
@@ -384,6 +399,7 @@ esp_err_t sf_web_start(void) {
       {.uri = "/api/status", .method = HTTP_GET, .handler = status},
       {.uri = "/api/config", .method = HTTP_POST, .handler = configure},
       {.uri = "/api/refresh", .method = HTTP_POST, .handler = refresh},
+      {.uri = "/api/wake", .method = HTTP_POST, .handler = wake},
       {.uri = "/api/update", .method = HTTP_POST, .handler = update},
       {.uri = "/api/local", .method = HTTP_GET, .handler = local_api},
       {.uri = "/api/local", .method = HTTP_POST, .handler = local_api},

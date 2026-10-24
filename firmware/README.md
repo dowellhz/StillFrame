@@ -1,6 +1,6 @@
-# Stillframe ESP32 固件 0.1.1-rc16（修复候选）
+# Stillframe ESP32 固件 0.1.1-rc17（修复候选）
 
-> **状态更正：0.1.0 已撤回，不应用于刷写。** 当前修复候选为 0.1.1-rc16，已在实体 ESP32-133C02-IL 开发板上完成配网、群晖同步、完整刷屏和网页 HTTP OTA 验证。
+> **状态更正：0.1.0 已撤回，不应用于刷写。** 当前修复候选为 0.1.1-rc17，已在实体 ESP32-133C02-IL 开发板上完成配网、群晖同步、完整刷屏和网页 HTTP OTA 验证。
 
 
 面向 Good Display ESP32-133C02-IL / ESP32-S3 N16R8 与 GDEP133C02 13.3 英寸六色屏，使用 ESP-IDF 5.5.2。源码可以编译成真实 ESP32-S3 程序；已在 Espressif ESP Emulator 0.50.0 中执行。
@@ -33,9 +33,9 @@
 
 | 文件 | 用途 |
 |---|---|
-| `candidate-0.1.1-rc16/Stillframe-0.1.1-rc16-flash.bin` | 首次有线写入、模拟器启动，从地址 0 开始的合并镜像 |
-| `candidate-0.1.1-rc16/Stillframe-0.1.1-rc16-app.bin` | 已运行 Stillframe 后，通过设备网页或群晖进行 OTA 升级 |
-| `candidate-0.1.1-rc16/Stillframe-0.1.1-rc16.elf` | 符号与调试文件 |
+| `candidate-0.1.1-rc17/Stillframe-0.1.1-rc17-flash.bin` | 首次有线写入、模拟器启动，从地址 0 开始的合并镜像 |
+| `candidate-0.1.1-rc17/Stillframe-0.1.1-rc17-app.bin` | 已运行 Stillframe 后，通过设备网页或群晖进行 OTA 升级 |
+| `candidate-0.1.1-rc17/Stillframe-0.1.1-rc17.elf` | 符号与调试文件 |
 | `SHA256SUMS` | 发布文件的 SHA-256 校验值 |
 
 网页会计算应用 bin 的 SHA-256。固件在备用分区校验长度、ESP32-S3 芯片标识、Stillframe 应用描述与完整 SHA-256；成功后才切换下次启动分区。校验失败继续使用当前程序。
@@ -68,9 +68,9 @@ node firmware/tools/make-assets.mjs
 ## 仿真与检查
 
 ```sh
-python3 emulator/run.py firmware/dist/candidate-0.1.1-rc16/Stillframe-0.1.1-rc16-flash.bin \
+python3 emulator/run.py firmware/dist/candidate-0.1.1-rc17/Stillframe-0.1.1-rc17-flash.bin \
   --name stillframe --ap-password 12345678 \
-  --elf firmware/dist/candidate-0.1.1-rc16/Stillframe-0.1.1-rc16.elf --seconds 30
+  --elf firmware/dist/candidate-0.1.1-rc17/Stillframe-0.1.1-rc17.elf --seconds 30
 node firmware/tools/web-test.mjs
 ```
 
@@ -125,3 +125,5 @@ rc11 只配置 GPIO14 且不开内部上下拉，低电平计为按下；开机�
 rc12 在刷屏成功后立即调用服务端 `POST /api/v1/device/displayed` 确认当前显示的照片，群晖“设备报告显示”与预览不再比实际屏幕落后一次同步（需群晖 0.1.7）。确认失败只记录警告，下一次 sync 仍照常上报。
 
 rc14～rc16：两次刷新之间自动浅睡眠，刷屏后 1 秒关闭屏幕电源；开机期间与插着电脑时保持清醒以保住 USB 串口。本板没有 SW4，连续连不上家里 Wi-Fi 超过 `offlineHotspotSeconds`（默认 600 秒，由群晖 0.1.8 下发并存于 NVS 键 `offline_ap`）即自动打开设置热点，恢复连接后关闭；有设备连着热点时暂停重连。实机已验证浅睡眠下按时刷新、热点在首个周期后关闭；断网开热点路径尚未实机断网验证。
+
+rc17 新增 `POST /api/wake`：以 `Authorization: Bearer <设备连接凭证>` 鉴权（与网页 Basic 认证共用恒定时间比较），只设置立即同步，供群晖“发送到相框”唤醒。实机验证：无凭证与错误凭证 401，正确凭证 202。

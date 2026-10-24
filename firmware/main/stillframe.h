@@ -16,7 +16,7 @@
 #define SF_VERSION "0.1.1-rc10-maintenance"
 #endif
 #else
-#define SF_VERSION "0.1.1-rc16"
+#define SF_VERSION "0.1.1-rc17"
 #endif
 typedef struct {
   uint32_t version;

@@ -233,3 +233,21 @@ test('tone overrides, live simulation, default colour and bulk re-render',async 
  const after=app.store.data.photos.find(p=>p.id===photo.id);assert.equal(after.color,'standard');assert.equal(after.brightness,0,'bulk re-render resets per-photo tweaks');
  assert.ok(app.store.data.events.some(e=>/按默认色彩重新生成 2 张/.test(e.message)));
 });
+test('sending a photo to a frame overrides the playlist until the frame reports showing it',async t=>{
+ const {app}=await fixture(t),auth=await initialize(app);const key=(await call(app,'/api/admin/enrollment-key','GET',undefined,auth)).json().key,deviceAuth={authorization:'Bearer '+key};
+ for(const [title,color] of [['甲',0],['乙',255],['丙',128]])assert.equal((await call(app,'/api/admin/photos','POST',{title,categoryId:'vangogh',data:pngData(color)},auth)).status,201);
+ await call(app,'/api/admin/default-config','PUT',{...cfg,categoryIds:['vangogh']},auth);
+ const sync=b=>call(app,'/api/v1/device/sync','POST',{deviceId:'push-frame',...b},deviceAuth);
+ const first=(await sync({requestId:'a'})).json().photo;const device=()=>app.store.data.devices.find(d=>d.id==='push-frame');assert.equal(device().address,'127.0.0.1');
+ const target=app.store.data.photos.find(p=>p.id!==first.id&&p.title==='丙')||app.store.data.photos.find(p=>p.id!==first.id);
+ assert.equal((await call(app,'/api/admin/devices/push-frame/show','POST',{photoId:target.id})).status,401);
+ assert.equal((await call(app,'/api/admin/devices/missing/show','POST',{photoId:target.id},auth)).status,404);
+ const r=await call(app,'/api/admin/devices/push-frame/show','POST',{photoId:target.id},auth);assert.equal(r.status,200);assert.equal(r.json().woke,false,'nothing listens on the test address');
+ assert.equal(device().pushPhotoId,target.id);
+ assert.equal((await sync({requestId:'b',currentPhotoId:first.id})).json().photo.id,target.id,'pushed photo comes first');
+ assert.equal((await sync({requestId:'c',currentPhotoId:first.id})).json().photo.id,target.id,'and is resent until shown');
+ assert.equal((await call(app,'/api/v1/device/displayed','POST',{deviceId:'push-frame',photoId:target.id},deviceAuth)).status,200);assert.equal(device().pushPhotoId,null);
+ assert.notEqual((await sync({requestId:'d',currentPhotoId:target.id})).json().photo.id,target.id,'playlist resumes after it');
+ await call(app,'/api/admin/photos/'+first.id,'PUT',{enabled:false},auth);
+ assert.equal((await call(app,'/api/admin/devices/push-frame/show','POST',{photoId:first.id},auth)).status,409);
+});
