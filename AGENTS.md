@@ -27,3 +27,20 @@
 ## 仓库
 
 - `.private/` 含真实群晖凭证，绝不提交；推送前扫描凭证。
+
+## Blender（macOS）
+
+- 这台 Mac 手动打开 Blender 正常，但从受限终端直接执行
+  `/opt/homebrew/bin/blender` 或 `Blender.app/Contents/MacOS/Blender` 会在 Metal
+  设备检测阶段崩溃（调用栈位于 `supports_barycentric_whitelist()` / `metal_is_supported()`）。
+- **禁止直接运行 Blender 二进制，也不要使用沙盒内的 `blender --background ...`。**
+- 必须通过 macOS LaunchServices 启动，使其采用与 Finder 手动打开相同的进程环境：
+
+  ```sh
+  open -a Blender --args --python '/absolute/path/to/script.py'
+  ```
+
+- 启动后通过目标输出文件是否出现来判断脚本完成情况；不要为了轮询再次启动 Blender。
+- 复用已有实例，禁止使用 `open -n` 或 `open -na` 连续启动任务。任务结束后关闭本次创建且用户未操作的窗口，避免累积后台实例。
+- 终端出现的 `/private/tmp/nemu-cargo-home/env` 缺失提示来自 `.zshenv`，与 Blender
+  的模型或脚本无关。

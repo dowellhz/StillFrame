@@ -33,3 +33,10 @@ doc/*.zip
 /tools/
 /painting/
 /output/
+
+# Local CAD logs, preview renders, duplicate archives and editor backups
+/design/*.log
+/design/*.zip
+/design/renders/
+*.blend1
+/result.json

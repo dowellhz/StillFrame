@@ -1,0 +1,11 @@
+{
+  "type": "process",
+  "name": "Stillframe X2D 0.20mm No Brim",
+  "inherits": "0.20mm Standard @BBL X2D",
+  "from": "User",
+  "instantiation": "true",
+  "layer_height": "0.2",
+  "brim_type": "no_brim",
+  "brim_width": "0",
+  "skirt_loops": "0"
+}
