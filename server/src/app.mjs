@@ -34,7 +34,7 @@ export async function createApp({dataDir=process.env.STILLFRAME_DATA_DIR||path.j
   try{
    const u=new URL(req.url,'http://localhost'),p=u.pathname,m=req.method;
    if(['POST','PUT','PATCH','DELETE'].includes(m)&&req.headers.origin){let origin;try{origin=new URL(req.headers.origin);}catch{throw fail('来源无效',403);}if(origin.host!==req.headers.host)throw fail('禁止跨站修改请求',403);}
-   if(p==='/api/health'&&m==='GET')return response(res,200,{ok:true,name:'Stillframe',version:'0.1.29',ready:!!store.data.admin});
+   if(p==='/api/health'&&m==='GET')return response(res,200,{ok:true,name:'Stillframe',version:'0.1.30',ready:!!store.data.admin});
    if(p==='/api/auth/status'&&m==='GET')return response(res,200,{initialized:!!store.data.admin,authenticated:isAdmin(req)});
    if(p==='/api/auth/setup'&&m==='POST'){
     limited(req);if(store.data.admin)throw fail('管理员已创建',409);const b=await readBody(req,8192),username=text(b.username,60);if(!username||typeof b.password!=='string'||b.password.length<10||b.password.length>128)throw fail('用户名不能为空，密码需为 10～128 位');const salt=crypto.randomBytes(16).toString('hex'),passwordHash=(await scrypt(b.password,salt,64)).toString('hex');store.write(s=>{if(s.admin)throw fail('管理员已创建',409);s.admin={username,salt,passwordHash};store.event(s,'setup','管理员已创建');});return response(res,201,{ok:true},session(req,res));

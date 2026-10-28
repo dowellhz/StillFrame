@@ -346,3 +346,6 @@
   .settings-savebar span { display: none; }
   .settings-savebar .button { width: 100%; }
 }
+.crop-stage.complete-image{background:#fff}
+.crop-stage.complete-image .crop-box{border-color:#3d6757;box-shadow:0 0 0 1px rgb(61 103 87 / 35%)}
+.crop-stage.complete-image .crop-handle{border-color:#3d6757}

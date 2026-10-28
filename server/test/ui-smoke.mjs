@@ -36,7 +36,12 @@ try{
 
  // Complete-image mode must remain unchanged until a real crop gesture, then
  // save the selected region through the same backend used by the photo editor.
- for(const [width,height] of [[8,8],[6,8]]){
+ const layout=(width,height,settings)=>JSON.parse(w.eval(`JSON.stringify(displayLayout(${width},${height},${JSON.stringify(settings)}))`));
+ const square=layout(8,8,{fit:'contain',rotation:0,cropX:.1,cropW:.8});assert.deepEqual([square.x,square.y,square.w,square.h],[0,200,1200,1200],'square original has 200 px top and bottom padding');
+ const narrow=layout(2,4,{fit:'contain',rotation:0});assert.deepEqual([narrow.x,narrow.y,narrow.w,narrow.h],[200,0,800,1600],'narrow original has left and right padding');
+ const rotated=layout(2,4,{fit:'contain',rotation:90});assert.deepEqual([rotated.x,rotated.y,rotated.w,rotated.h],[0,500,1200,600],'rotation changes padding direction');
+ const cropped=layout(8,8,{fit:'cover',rotation:0,cropX:.25,cropY:.25,cropW:.375,cropH:.5});assert.deepEqual([cropped.left,cropped.top,cropped.x,cropped.y,cropped.w,cropped.h],[2,2,0,0,1200,1600],'layout uses the saved source crop');
+ for(const [width,height] of [[8,8],[6,8],[4,8]]){
   const pixels=Buffer.alloc(width*height*4),colors=[[255,0,0],[0,255,0],[0,0,255],[255,255,0],[0,0,0],[255,255,255]];
   for(let y=0;y<height;y++)for(let x=0;x<width;x++)pixels.set([...colors[(x+y)%colors.length],255],(y*width+x)*4);
   const title=`裁切回归 ${width}×${height}`,png=PNG.sync.write({width,height,data:pixels});
@@ -47,6 +52,10 @@ try{
   stage.getBoundingClientRect=()=>({width:400,height:400*height/width});box.setPointerCapture=()=>{};
   const pointer=(target,type,x,y)=>target.dispatchEvent(new w.PointerEvent(type,{bubbles:true,button:0,pointerId:1,clientX:x,clientY:y}));
   assert.equal(form.elements.fit.value,'contain');assert.deepEqual(values(),[0,0,1,1]);assert.equal(q('.crop-disabled'),null);assert.ok(!stage.classList.contains('disabled'));
+  assert.ok(stage.classList.contains('complete-image'));assert.deepEqual([q('#crop-canvas').width,q('#crop-canvas').height],[600,800]);
+  if(width===8){assert.equal(box.style.top,'12.5%');assert.equal(box.style.height,'75%');assert.match(q('#crop-size').textContent,/上下各留白 12.5%/);}
+  if(width===6){assert.equal(box.style.top,'0%');assert.equal(box.style.height,'100%');assert.match(q('#crop-size').textContent,/无补白/);}
+  if(width===4){assert.ok(Math.abs(parseFloat(box.style.left)-100/6)<.001);assert.match(q('#crop-size').textContent,/左右各留白 16.7%/);}
   pointer(box,'pointerdown',150,150);pointer(box,'pointerup',150,150);assert.equal(form.elements.fit.value,'contain');assert.deepEqual(values(),[0,0,1,1]);
   pointer(box,'pointerdown',150,150);pointer(box,'pointermove',170,150);pointer(box,'pointerup',170,150);assert.equal(form.elements.fit.value,'cover','moving a complete image activates cropping');
   form.elements.fit.value='contain';form.elements.fit.dispatchEvent(new w.Event('change',{bubbles:true}));
@@ -61,7 +70,7 @@ try{
   form.elements.rotation.value='0';form.elements.rotation.dispatchEvent(new w.Event('change',{bubbles:true}));await form.onsubmit({target:form,preventDefault(){}});
   const restored=app.store.data.photos.find(p=>p.id===original.id);assert.equal(restored.fit,'contain');assert.equal(restored.displaySha256,original.displaySha256,'complete-image mode restores original display');
  }
- console.log('Crop UI PASS: square and screen-ratio contain images, click without changes, resize/move, save/reopen, rendered bytes, rotation and restore.');
+ console.log('Crop UI PASS: screen canvas padding, square/narrow/screen-ratio images, crop layout geometry, click without changes, resize/move, save/reopen, rendered bytes, rotation and restore.');
 
  const deviceAuth={authorization:'Bearer '+app.store.data.enrollmentKey};
  const offered=await request('/api/v1/device/sync',{method:'POST',headers:deviceAuth,body:JSON.stringify({deviceId:'ui-test-device',requestId:'preview-download'})});
