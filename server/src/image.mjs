@@ -8,10 +8,10 @@ export function decode(bytes){
  else throw new Error('仅支持有效的 JPG 和 PNG 图片');
  if(!image.width||!image.height||image.width*image.height>24000000)throw new Error('图片尺寸无效');return {...image,ext};
 }
-export function resize(image,w=WIDTH,h=HEIGHT,fit='cover',rotation=0){
+export function resize(image,w=WIDTH,h=HEIGHT,fit='cover',rotation=0,cropX=0,cropY=0,cropW=1,cropH=1){
  const out=Buffer.alloc(w*h*4,255),swap=rotation===90||rotation===270,sw=swap?image.height:image.width,sh=swap?image.width:image.height;
- const scale=fit==='cover'?Math.max(w/sw,h/sh):Math.min(w/sw,h/sh);const dw=sw*scale,dh=sh*scale,dx=(w-dw)/2,dy=(h-dh)/2;
- for(let y=0;y<h;y++)for(let x=0;x<w;x++){const rx=(x+.5-dx)/scale-.5,ry=(y+.5-dy)/scale-.5;if(rx<-.5||ry<-.5||rx>=sw-.5||ry>=sh-.5)continue;
+ const useCrop=fit==='cover',left=useCrop?cropX*sw:0,top=useCrop?cropY*sh:0,cw=useCrop?cropW*sw:sw,ch=useCrop?cropH*sh:sh,scale=fit==='cover'?Math.max(w/cw,h/ch):Math.min(w/cw,h/ch),dw=cw*scale,dh=ch*scale,dx=(w-dw)/2,dy=(h-dh)/2;
+ for(let y=0;y<h;y++)for(let x=0;x<w;x++){const rx=left+(x+.5-dx)/scale-.5,ry=top+(y+.5-dy)/scale-.5;if(rx<left-.5||ry<top-.5||rx>=left+cw-.5||ry>=top+ch-.5)continue;
   let sx,sy;if(rotation===90){sx=ry;sy=image.height-1-rx;}else if(rotation===180){sx=image.width-1-rx;sy=image.height-1-ry;}else if(rotation===270){sx=image.width-1-ry;sy=rx;}else{sx=rx;sy=ry;}
   sx=Math.max(0,Math.min(image.width-1,sx));sy=Math.max(0,Math.min(image.height-1,sy));const x0=Math.floor(sx),y0=Math.floor(sy),x1=Math.min(x0+1,image.width-1),y1=Math.min(y0+1,image.height-1),fx=sx-x0,fy=sy-y0,base=(y*w+x)*4;
   for(let c=0;c<3;c++){const sample=(xx,yy)=>{const i=(yy*image.width+xx)*4,a=image.data[i+3]/255;return image.data[i+c]*a+255*(1-a);};out[base+c]=Math.round((sample(x0,y0)*(1-fx)+sample(x1,y0)*fx)*(1-fy)+(sample(x0,y1)*(1-fx)+sample(x1,y1)*fx)*fy);}
@@ -46,6 +46,6 @@ export function sixColor(image,dither=true,{chroma=1,brightness=0,contrast=1}={}
   }current=next;next=new Float32Array((w+2)*3);
  }return {bin,preview:PNG.sync.write({width:w,height:h,data:preview})};
 }
-export function processImage(bytes,settings={}){const source=decode(bytes);const fitted=resize(source,WIDTH,HEIGHT,settings.fit??'cover',settings.rotation||0);const result=sixColor(fitted,settings.dither!==false,toneOf(settings));const thumb=resize(source,300,360,'cover',settings.rotation||0);return {...result,thumbnail:jpeg.encode(thumb,80).data,width:source.width,height:source.height,ext:source.ext};}
+export function processImage(bytes,settings={}){const source=decode(bytes),crop=[settings.cropX??0,settings.cropY??0,settings.cropW??1,settings.cropH??1];const fitted=resize(source,WIDTH,HEIGHT,settings.fit??'cover',settings.rotation||0,...crop);const result=sixColor(fitted,settings.dither!==false,toneOf(settings));const thumb=resize(source,300,360,'cover',settings.rotation||0,...crop);return {...result,thumbnail:jpeg.encode(thumb,80).data,width:source.width,height:source.height,ext:source.ext};}
 // Fast half-resolution render for live previews while adjusting tone; never stored.
-export function simulateImage(bytes,settings={}){const source=decode(bytes);const fitted=resize(source,WIDTH/2,HEIGHT/2,settings.fit??'cover',settings.rotation||0);return {preview:sixColor(fitted,settings.dither!==false,toneOf(settings)).preview};}
+export function simulateImage(bytes,settings={}){const source=decode(bytes),crop=[settings.cropX??0,settings.cropY??0,settings.cropW??1,settings.cropH??1];const fitted=resize(source,WIDTH/2,HEIGHT/2,settings.fit??'cover',settings.rotation||0,...crop);return {preview:sixColor(fitted,settings.dither!==false,toneOf(settings)).preview};}

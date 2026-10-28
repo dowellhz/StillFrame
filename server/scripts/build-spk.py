@@ -11,7 +11,7 @@ import math
 import json
 ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / 'dist'
-version = '0.1.13-0014'
+version = '0.1.29-0030'
 
 def add(tar, source, name):
     def normalize(info):

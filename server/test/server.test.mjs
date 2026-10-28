@@ -35,6 +35,27 @@ test('hierarchical categories reject cycles, duplicate names and nonempty deleti
  assert.equal((await call(app,'/api/admin/default-config','PUT',{...cfg,categoryIds:['missing']},auth)).status,400);
  assert.equal((await call(app,'/api/admin/categories/'+c.id,'DELETE',undefined,auth)).status,200);
 });
+test('playback config combines type, subject, artist, movement and collection facets',async t=>{
+ const {app}=await fixture(t),auth=await initialize(app),key=(await call(app,'/api/admin/enrollment-key','GET',undefined,auth)).json().key,deviceAuth={authorization:'Bearer '+key};
+ let r=await call(app,'/api/admin/photos','POST',{title:'莫奈风景',author:'克劳德·莫奈',contentType:'painting',subjects:['landscape'],tags:['印象派','鲜亮'],collectionIds:['vangogh','people'],data:pngData(120),dither:false},auth);assert.equal(r.status,201);const painting=r.json().photos[0];assert.deepEqual(painting.collectionIds,['vangogh','people']);assert.equal(painting.categoryId,'vangogh');
+ r=await call(app,'/api/admin/photos','POST',{title:'人物照片',author:'摄影者',contentType:'photo',subjects:['portrait'],tags:['旅行'],categoryId:'people',data:pngData(80),dither:false},auth);assert.equal(r.status,201);
+ const filters={...cfg,categoryIds:['art'],contentTypes:['painting'],subjects:['landscape'],creators:['克劳德·莫奈'],movements:['印象派'],tags:['鲜亮']};
+ r=await call(app,'/api/admin/default-config','PUT',filters,auth);assert.equal(r.status,200);assert.deepEqual(r.json().defaultConfig.contentTypes,['painting']);assert.deepEqual(r.json().defaultConfig.movements,['印象派']);assert.deepEqual(r.json().defaultConfig.tags,['鲜亮']);
+ r=await call(app,'/api/v1/device/sync','POST',{deviceId:'facet-frame',requestId:'facets'},deviceAuth);assert.equal(r.status,200);assert.equal(r.json().photo.id,painting.id);
+ r=await call(app,'/api/admin/default-config','PUT',{...filters,categoryIds:['people']},auth);assert.equal(r.status,200);r=await call(app,'/api/v1/device/sync','POST',{deviceId:'facet-frame',requestId:'secondary-collection'},deviceAuth);assert.equal(r.json().photo.id,painting.id,'a secondary collection participates in playback filtering');
+ assert.equal((await call(app,'/api/admin/photos/'+painting.id,'PUT',{collectionIds:[]},auth)).status,400);
+ assert.equal((await call(app,'/api/admin/default-config','PUT',{...filters,contentTypes:['video']},auth)).status,400);
+ assert.equal((await call(app,'/api/admin/default-config','PUT',{...filters,creators:'克劳德·莫奈'},auth)).status,400);
+});
+test('legacy playback tags migrate into separate movement and user-tag facets',async t=>{
+ const {app,dir}=await fixture(t);app.close();
+ const file=path.join(dir,'state.json'),saved=JSON.parse(await readFile(file,'utf8'));
+ delete saved.defaultConfig.movements;saved.defaultConfig.tags=['印象派','鲜亮'];
+ await writeFile(file,JSON.stringify(saved));
+ const restarted=await createApp({dataDir:dir});t.after(()=>restarted.close());
+ assert.deepEqual(restarted.store.data.defaultConfig.movements,['印象派']);
+ assert.deepEqual(restarted.store.data.defaultConfig.tags,['鲜亮']);
+});
 test('real image pipeline, binary hash, device retry/ack selection, overrides, credentials and restart persistence',async t=>{
  const {app,dir}=await fixture(t),auth=await initialize(app);const key=(await call(app,'/api/admin/enrollment-key','GET',undefined,auth)).json().key,deviceAuth={authorization:'Bearer '+key};
  let r=await call(app,'/api/admin/photos','POST',{title:'白色测试图',categoryId:'vangogh',data:pngData(),dither:false},auth);assert.equal(r.status,201,r.bytes.toString());const first=r.json().photos[0];assert.equal(first.fit,'cover','uploads without fit must default to center crop');
@@ -42,7 +63,7 @@ test('real image pipeline, binary hash, device retry/ack selection, overrides, c
  assert.equal((await call(app,'/api/admin/photos','POST',{title:'重复',categoryId:'vangogh',data:pngData()},auth)).status,409);
  assert.equal((await call(app,'/api/admin/photos','POST',{title:'坏图片',categoryId:'vangogh',data:'data:image/png;base64,YmFk'},auth)).status,400);
  await call(app,'/api/admin/default-config','PUT',cfg,auth);const sync=b=>call(app,'/api/v1/device/sync','POST',{deviceId:'frame-bedroom',...b},deviceAuth);
- const initial=(await sync({requestId:'first'})).json();assert.equal(initial.registered,true);assert.equal(initial.config.source,'default');assert.equal(initial.photo.bytes,960000);
+ const initial=(await sync({requestId:'first'})).json();assert.equal(initial.registered,true);assert.equal(initial.config.source,'default');assert.equal(initial.photo.bytes,960000);assert.ok(Math.abs(Date.parse(app.store.data.devices[0].nextRefreshAt)-Date.now()-cfg.intervalSeconds*1000)<2000,'server records the device next refresh time');
  const download=await call(app,initial.photo.url,'GET',undefined,deviceAuth);assert.equal(download.status,200);assert.equal(download.bytes.length,960000);assert.equal(crypto.createHash('sha256').update(download.bytes).digest('hex'),initial.photo.sha256);
  assert.deepEqual((await sync({requestId:'first'})).json(),initial);assert.equal((await sync({requestId:'retry'})).json().photo.id,initial.photo.id);
  assert.notEqual((await sync({requestId:'next',currentPhotoId:initial.photo.id})).json().photo.id,initial.photo.id);assert.equal(app.store.data.devices.length,1);
@@ -58,6 +79,7 @@ test('six-color screen codes, alpha compositing, aspect ratio and oversized imag
  const jpg=jpeg.encode({width:2,height:3,data:Buffer.alloc(2*3*4,255)},80).data;const decoded=decode(jpg);assert.equal(decoded.ext,'jpg');assert.equal(decoded.width,2);assert.equal(decoded.height,3);
  const colors=[[0,0,0],[255,255,255],[255,255,0],[255,0,0],[0,0,255],[0,128,0]],input={width:6,height:1,data:Buffer.from(colors.flatMap(c=>[...c,255]))};assert.deepEqual([...sixColor(input,false).bin],[0x01,0x23,0x56]);
  const r=resize({width:2,height:1,data:Buffer.from([255,0,0,255,255,0,0,255])},4,4,'contain');assert.deepEqual([...r.data.subarray(0,4)],[255,255,255,255]);assert.equal(r.data[(1*4+1)*4+1],0);
+ const strip={width:4,height:1,data:Buffer.from([[255,0,0],[0,255,0],[0,0,255],[255,255,0]].flatMap(c=>[...c,255]))},cropped=resize(strip,2,1,'cover',0,.5,0,.5,1);assert.deepEqual([...cropped.data],[0,0,255,255,255,255,0,255]);
  assert.ok(resize({width:1,height:1,data:Buffer.from([0,0,0,0])},2,2).data.every(x=>x===255));const huge=Buffer.alloc(24);Buffer.from([137,80,78,71,13,10,26,10]).copy(huge);huge.writeUInt32BE(100000,16);huge.writeUInt32BE(100000,20);assert.throws(()=>decode(huge),/2400/);
 });
 test('private files, missing paths and public health routes',async t=>{const {app}=await fixture(t);assert.equal((await call(app,'/api/health')).status,200);assert.equal((await call(app,'/')).status,200);assert.equal((await call(app,'/src/app.mjs')).status,404);assert.equal((await call(app,'/%2e%2e%2fsrc/app.mjs')).status,403);assert.equal((await call(app,'/app.js')).status,200);});
@@ -222,6 +244,7 @@ test('tone overrides, live simulation, default colour and bulk re-render',async 
  const png=PNG.sync.read(sim.bytes);assert.deepEqual([png.width,png.height],[600,800]);
  assert.equal((await call(app,`/api/admin/photos/${photo.id}/simulate`,'POST',{chroma:3})).status,401);
  assert.equal((await call(app,`/api/admin/photos/${photo.id}/simulate`,'POST',{chroma:3},auth)).status,400);
+ assert.equal((await call(app,`/api/admin/photos/${photo.id}/simulate`,'POST',{cropX:.8,cropY:0,cropW:.4,cropH:1},auth)).status,400);
  assert.equal(app.store.data.photos[0].renderVersion,photo.renderVersion,'simulation never stores a render');
  r=await call(app,'/api/admin/photos/'+photo.id,'PUT',{brightness:12,contrast:1.2},auth);const tuned=r.json().photos[0];assert.equal(tuned.brightness,12);assert.notEqual(tuned.displaySha256,photo.displaySha256);
  assert.equal((await call(app,'/api/admin/photo-defaults','PUT',{color:'neon'},auth)).status,400);
